@@ -30,6 +30,8 @@ namespace DiscImage.EbsDiscTest {
 
         static string PathSeparator;
 
+        static string OutputPath;
+
 
         static VirtualDisk GetEBSDiskImage(string snapshotId, string profile, string awsAccessKey, string awsSecret, string region) {
 
@@ -64,15 +66,18 @@ namespace DiscImage.EbsDiscTest {
             string image = null;
             string path = "";
 
+            string output = null;
+
             OptionSet option_set = new OptionSet()
                 .Add("h|help", "Display this help", v => showHelp = v != null)
                 .Add("awsprofile=", "AWS profile to use", v => profile = v)
                 .Add("awskey=", "AWS access key to use", v => awsAccessKey = v)
                 .Add("awssecret=", "AWS secret", v => awsAccessSecret = v)
                 .Add("awsregion=", "AWS region", v => awsRegion = v)
-                .Add("command=", "The command to execute: [volumes|ls|extract]", v => command = v)
+                .Add("command=", "The command to execute: [volumes|ls|download]", v => command = v)
                 .Add("image=", @"The path to the virtual disk, e.g. C:\temp\backup.vhdx or ebs://snapshotid", v => image = v)
-                .Add("path=", @"Volume and path to query within the virtual disk filesystem ", v => path = v);
+                .Add("path=", @"Volume and path to query within the virtual disk filesystem ", v => path = v)
+                .Add("o|output=", "Destination path for downloaded files (file path or directory)", v => output = v);
 
             try {
 
@@ -82,6 +87,8 @@ namespace DiscImage.EbsDiscTest {
                     Console.WriteLine("[!] Image path not specified");
                     showHelp = true;
                 }
+
+                OutputPath = output;
 
                 if (showHelp) {
                     option_set.WriteOptionDescriptions(Console.Out);
@@ -172,7 +179,9 @@ namespace DiscImage.EbsDiscTest {
 
                             var fileStream = fs.OpenFile(filePath, FileMode.Open, FileAccess.Read);
                             Console.WriteLine($"[+] Opened file with path {filePath} for with size: {fileStream.Length}");
-                            File.WriteAllBytes(Path.GetFileName(filePath), StreamUtilities.ReadExact(fileStream, (int)fileStream.Length));
+                            var outputFile = ResolveOutputPath(OutputPath, filePath);
+                            File.WriteAllBytes(outputFile, StreamUtilities.ReadExact(fileStream, (int)fileStream.Length));
+                            Console.WriteLine($"[+] Saved to {outputFile}");
                         }
                     }
                 } else {
@@ -255,7 +264,8 @@ namespace DiscImage.EbsDiscTest {
         static private async Task DownloadFile(string volumePath) {
 
             using (var fileStream = CurrentFileSystem.OpenFile(volumePath, FileMode.Open, FileAccess.Read)) {
-                using (var outputStream = new FileStream(Path.GetFileName(volumePath), FileMode.OpenOrCreate, FileAccess.ReadWrite)) {
+                var outputFile = ResolveOutputPath(OutputPath, volumePath);
+                using (var outputStream = new FileStream(outputFile, FileMode.OpenOrCreate, FileAccess.ReadWrite)) {
                     byte[] buffer = new byte[512 * 1024];
                     long totalRead = 0;
 
@@ -338,6 +348,17 @@ namespace DiscImage.EbsDiscTest {
                     }                    
                 }
             }          
+        }
+
+        static string ResolveOutputPath(string output, string sourceFilePath) {
+            if (string.IsNullOrEmpty(output))
+                return Path.GetFileName(sourceFilePath);
+
+            if (Directory.Exists(output) || output.EndsWith("\\") || output.EndsWith("/")) {
+                return Path.Combine(output, Path.GetFileName(sourceFilePath));
+            }
+
+            return output;
         }
 
         static string GetHumanSize(long size) {
