@@ -11,11 +11,25 @@
     <PackageReference Include="DiscUtils.Containers" Version="0.16.13" />
     <PackageReference Include="DiscUtils.FileSystems" Version="0.16.13" />
     <PackageReference Include="DiscUtils.Lvm" Version="0.16.13" />
-    <PackageReference Include="dnMerge" Version="0.5.15">
+    <PackageReference Include="ILMerge" Version="3.0.41">
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
     <PackageReference Include="Terminal.Gui" Version="1.8.2" />
   </ItemGroup>
+
+  <Target Name="ILMerge" AfterTargets="Build">
+    <PropertyGroup>
+      <ILMergeTool>$(NuGetPackageRoot)ilmerge\3.0.41\tools\net452\ILMerge.exe</ILMergeTool>
+      <MergedOutput>$(OutputPath)Volumiser.merged.exe</MergedOutput>
+    </PropertyGroup>
+    <ItemGroup>
+      <MergeAssemblies Include="$(OutputPath)*.dll" Exclude="$(OutputPath)lzfse.dll" />
+    </ItemGroup>
+    <Exec Command="&quot;$(ILMergeTool)&quot; /out:&quot;$(MergedOutput)&quot; &quot;$(OutputPath)$(AssemblyName).exe&quot; @(MergeAssemblies->'&quot;%(FullPath)&quot;', ' ') /targetplatform:v4 /closed" />
+    <Delete Files="$(OutputPath)$(AssemblyName).exe" />
+    <Move SourceFiles="$(MergedOutput)" DestinationFiles="$(OutputPath)$(AssemblyName).exe" />
+    <Delete Files="$(OutputPath)Volumiser.merged.pdb" Condition="Exists('$(OutputPath)Volumiser.merged.pdb')" />
+  </Target>
 
 </Project>
