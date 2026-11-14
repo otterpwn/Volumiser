@@ -12,6 +12,7 @@ using System.IO;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using System.Text;
+using System.IO.Compression;
 
 namespace DiscImage.EbsDiscTest {
     class Program {
@@ -69,6 +70,7 @@ namespace DiscImage.EbsDiscTest {
             string output = null;
             string mode = null;
             string volumeId = null;
+            bool zip = false;
 
             OptionSet option_set = new OptionSet()
                 .Add("h|help", "Display this help", v => showHelp = v != null)
@@ -81,7 +83,8 @@ namespace DiscImage.EbsDiscTest {
                 .Add("path=", @"Volume and path to query within the virtual disk filesystem ", v => path = v)
                 .Add("o|output=", "Destination path for downloaded files (file path or directory)", v => output = v)
                 .Add("m|mode=", "Extract mode: [ws|dc]", v => mode = v)
-                .Add("volume=", "Volume ID for extract command", v => volumeId = v);
+                .Add("volume=", "Volume ID for extract command", v => volumeId = v)
+                .Add("zip", "Bundle extracted files into a single zip", v => zip = v != null);
 
             try {
 
@@ -236,28 +239,63 @@ namespace DiscImage.EbsDiscTest {
                             Directory.CreateDirectory(outputDir);
 
                         int extracted = 0;
-                        foreach (var srcPath in sourceFiles) {
-                            try {
-                                using (var fileStream = fs.OpenFile(srcPath, FileMode.Open, FileAccess.Read)) {
-                                    var randomName = GenerateRandomFileName();
-                                    var destPath = Path.Combine(outputDir, randomName);
 
-                                    using (var outStream = new FileStream(destPath, FileMode.CreateNew, FileAccess.Write)) {
-                                        byte[] buffer = new byte[512 * 1024];
-                                        long totalRead = 0;
-                                        while (fileStream.Position < fileStream.Length) {
-                                            int readSize = fileStream.Read(buffer, 0, buffer.Length);
-                                            outStream.Write(buffer, 0, readSize);
-                                            totalRead += readSize;
+                        if (zip) {
+                            var zipName = GenerateRandomFileName();
+                            var zipPath = Path.Combine(outputDir, zipName);
+
+                            using (var zipStream = new FileStream(zipPath, FileMode.CreateNew))
+                            using (var archive = new ZipArchive(zipStream, ZipArchiveMode.Create)) {
+                                foreach (var srcPath in sourceFiles) {
+                                    try {
+                                        using (var fileStream = fs.OpenFile(srcPath, FileMode.Open, FileAccess.Read)) {
+                                            var randomName = GenerateRandomFileName();
+                                            var entry = archive.CreateEntry(randomName, CompressionLevel.Fastest);
+
+                                            using (var entryStream = entry.Open()) {
+                                                byte[] buffer = new byte[512 * 1024];
+                                                int readSize;
+                                                long totalRead = 0;
+                                                while ((readSize = fileStream.Read(buffer, 0, buffer.Length)) > 0) {
+                                                    entryStream.Write(buffer, 0, readSize);
+                                                    totalRead += readSize;
+                                                }
+                                                Console.WriteLine($"[+] {srcPath} -> {randomName} ({GetHumanSize(totalRead)})");
+                                            }
+
+                                            extracted++;
                                         }
+                                    } catch (Exception ex) {
+                                        Console.WriteLine($"[!] Failed to extract {srcPath}: {ex.Message}");
                                     }
-
-                                    var size = new FileInfo(destPath).Length;
-                                    Console.WriteLine($"[+] {srcPath} -> {randomName} ({GetHumanSize(size)})");
-                                    extracted++;
                                 }
-                            } catch (Exception ex) {
-                                Console.WriteLine($"[!] Failed to extract {srcPath}: {ex.Message}");
+                            }
+
+                            var zipSize = new FileInfo(zipPath).Length;
+                            Console.WriteLine($"[+] Zipped to {zipName} ({GetHumanSize(zipSize)})");
+
+                        } else {
+                            foreach (var srcPath in sourceFiles) {
+                                try {
+                                    using (var fileStream = fs.OpenFile(srcPath, FileMode.Open, FileAccess.Read)) {
+                                        var randomName = GenerateRandomFileName();
+                                        var destPath = Path.Combine(outputDir, randomName);
+
+                                        using (var outStream = new FileStream(destPath, FileMode.CreateNew, FileAccess.Write)) {
+                                            byte[] buffer = new byte[512 * 1024];
+                                            int readSize;
+                                            while ((readSize = fileStream.Read(buffer, 0, buffer.Length)) > 0) {
+                                                outStream.Write(buffer, 0, readSize);
+                                            }
+                                        }
+
+                                        var size = new FileInfo(destPath).Length;
+                                        Console.WriteLine($"[+] {srcPath} -> {randomName} ({GetHumanSize(size)})");
+                                        extracted++;
+                                    }
+                                } catch (Exception ex) {
+                                    Console.WriteLine($"[!] Failed to extract {srcPath}: {ex.Message}");
+                                }
                             }
                         }
 

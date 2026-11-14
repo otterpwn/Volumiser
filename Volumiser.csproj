@@ -6,6 +6,11 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Reference Include="System.IO.Compression" />
+    <Reference Include="System.IO.Compression.FileSystem" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="AWSSDK.EBS" Version="3.7.100.9" />
     <PackageReference Include="AWSSDK.SecurityToken" Version="3.7.100.4" />
     <PackageReference Include="DiscUtils.Containers" Version="0.16.13" />
