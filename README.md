@@ -17,7 +17,6 @@ Volumiser supports the following disk image formats:
 * VHDX
 * VMDK
 * VHD
-* VHDX
 
 
 along with the following file systems:
@@ -100,13 +99,67 @@ Volumiser.exe --image "c:\Virtual Machines\Domain Controller.vhdx" --command ls 
 ...
 ```
 
-**"Downloading" Files**
+**Downloading Files**
 
-Files can be "downloaded" to your local machine using the download command
+Files can be downloaded to your local machine using the download command.  By default files are written to the current working directory using the source filename.  The `--output` argument can be used to specify a destination file path or directory.
 
 ```
 Volumiser.exe --image "c:\Virtual Machines\Domain Controller.vhdx" --command download --path "VLG{166c0197-909e-419d-a431-2d9b9df4d1fe}:\Windows\system32\config\SYSTEM"
 [+] Opened disk image, Size: 127GB
 [+] Opened volume with ID VLG{166c0197-909e-419d-a431-2d9b9df4d1fe}
 [+] Opened file with path \Windows\System32\config\SYSTEM for with size: 12058624
+[+] Saved to SYSTEM
+```
+
+Specifying a custom output path or directory
+
+```
+Volumiser.exe --image "c:\Virtual Machines\Domain Controller.vhdx" --command download --path "VLG{166c0197-909e-419d-a431-2d9b9df4d1fe}:\Windows\system32\config\SYSTEM" --output "C:\loot\DC-SYSTEM"
+[+] Opened disk image, Size: 127GB
+[+] Opened volume with ID VLG{166c0197-909e-419d-a431-2d9b9df4d1fe}
+[+] Opened file with path \Windows\System32\config\SYSTEM for with size: 12058624
+[+] Saved to C:\loot\DC-SYSTEM
+```
+
+**Extracting Credential Files**
+
+The extract command provides a quick way to pull the files needed for offline credential extraction.  Rather than downloading each file individually, the extract command knows which files are needed based on the target type and handles everything in a single step.  Extracted files are written with random names and a `.log` extension to avoid leaking the original filenames on disk or in the process command line.
+
+The `--mode` argument specifies the target type:
+* `ws` - Workstation/Server: extracts SAM, SYSTEM and SECURITY from `\Windows\system32\config\`
+* `dc` - Domain Controller: extracts SYSTEM from `\Windows\system32\config\` and ntds.dit from `\Windows\NTDS\`
+
+The `--volume` argument specifies which volume to extract from and `--output` specifies the destination directory.
+
+*Extracting from a workstation*
+```
+Volumiser.exe --image "c:\Virtual Machines\Workstation.vhdx" --command extract --volume "VLG{166c0197-909e-419d-a431-2d9b9df4d1fe}" --mode ws --output C:\loot\
+[+] Opened disk image, Size: 127GB
+[+] Opened volume with ID VLG{166c0197-909e-419d-a431-2d9b9df4d1fe}
+[+] \Windows\system32\config\SAM -> b1c4e892.log (56.00KB)
+[+] \Windows\system32\config\SYSTEM -> 5d3a71f0.log (11.50MB)
+[+] \Windows\system32\config\SECURITY -> e8f23a01.log (28.00KB)
+[+] Extract complete: 3 files
+```
+
+*Extracting from a domain controller*
+```
+Volumiser.exe --image "c:\Virtual Machines\Domain Controller.vhdx" --command extract --volume "VLG{166c0197-909e-419d-a431-2d9b9df4d1fe}" --mode dc --output C:\loot\
+[+] Opened disk image, Size: 127GB
+[+] Opened volume with ID VLG{166c0197-909e-419d-a431-2d9b9df4d1fe}
+[+] \Windows\system32\config\SYSTEM -> a3f1b20c.log (11.50MB)
+[+] \Windows\NTDS\ntds.dit -> 7e09d4f1.log (48.20MB)
+[+] Extract complete: 2 files
+```
+
+The `--zip` flag bundles all extracted files into a single zip archive.  Files are streamed directly into the zip without being written to disk individually.  The zip itself is also given a random name with a `.log` extension.
+
+```
+Volumiser.exe --image "c:\Virtual Machines\Domain Controller.vhdx" --command extract --volume "VLG{166c0197-909e-419d-a431-2d9b9df4d1fe}" --mode dc --output C:\loot\ --zip
+[+] Opened disk image, Size: 127GB
+[+] Opened volume with ID VLG{166c0197-909e-419d-a431-2d9b9df4d1fe}
+[+] \Windows\system32\config\SYSTEM -> a3f1b20c.log (11.50MB)
+[+] \Windows\NTDS\ntds.dit -> 7e09d4f1.log (48.20MB)
+[+] Zipped to 9c2e4d87.log (41.30MB)
+[+] Extract complete: 2 files
 ```
